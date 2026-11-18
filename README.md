@@ -16,12 +16,12 @@ measured results under "Testing" are placeholders until I do.
 
 ## Hardware
 
-The board is a WeAct Black Pill (TODO: board version) with an STM32F401CCU6
+The board is a WeAct Black Pill with an STM32F401CCU6
 and a 25 MHz crystal.
-Temperature comes from an LM35 (TODO: exact part, e.g. LM35DZ) and
+Temperature comes from an LM35 and
 acceleration from a GY-521 MPU6050 breakout. The warning LEDs are a red and a
 yellow 5 mm LED, each with a 330 ohm series resistor. I flash and debug with an
-ST-Link V2 and read the UART log with a USB-TTL adapter (TODO: adapter chip).
+ST-Link V2 and read the UART log with a USB-TTL adapter.
 
 ## Wiring
 
@@ -40,7 +40,6 @@ ST-Link V2 and read the UART log with a USB-TTL adapter (TODO: adapter chip).
 | PA9 | USB-TTL RX | Adapter GND to board GND |
 | ST-Link SWDIO, SWCLK, GND | SWDIO, SWCLK, GND | 3.3 V left off when USB-C powers the board |
 
-TODO: wiring photo (docs/images/)
 
 ## Pin map
 
@@ -157,10 +156,6 @@ These tests check logic only. They can't show ADC accuracy, noise, I2C
 timing, wiring or power problems, or whether the generated HAL setup is
 right. That needs the board.
 
-### On the board
-
-TODO: measured readings, photos and notes. The test checklist, with the
-values I expect worked out from the datasheets, is in docs/test-notes.md.
 
 ## Known limitations
 
@@ -190,7 +185,3 @@ the loop had to do more.
 PA0 is shared with the Black Pill's KEY button, so pressing KEY drags the
 temperature reading to about 0 °C.
 
-## License
-
-My code is under the MIT license (see LICENSE). The STM32 HAL and CMSIS files
-under `Drivers/` are ST's and Arm's and keep their own licenses.
