@@ -21,6 +21,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdio.h>
+#include <string.h>
 #include "config.h"
 #include "lm35.h"
 #include "mpu6050.h"
@@ -72,6 +74,8 @@ static void MX_USART1_UART_Init(void);
 static void update_temperature(void);
 static void update_imu(uint32_t now);
 static void update_leds(uint32_t now);
+static void log_line(const char *msg);
+static void log_status(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -115,12 +119,18 @@ int main(void)
   imu_ready = (MPU6050_Init(&hi2c1) == HAL_OK);
   imu_fault = !imu_ready;
 
+  log_line("\r\nblackpill-temp-tilt-monitor start\r\n");
+  if (!imu_ready) {
+    log_line("MPU6050 init failed: no ACK or WHO_AM_I mismatch\r\n");
+  }
+
   /* Each task keeps the tick of its last run. Comparing with
    * (now - last >= period) on uint32_t still works when the tick counter
    * wraps around after about 49 days. */
   uint32_t t_heartbeat = HAL_GetTick();
   uint32_t t_temp      = t_heartbeat;
   uint32_t t_imu       = t_heartbeat;
+  uint32_t t_log       = t_heartbeat;
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -150,6 +160,11 @@ int main(void)
     /* LEDs are cheap to update, so do it every pass instead of tying them
      * to one of the task periods. */
     update_leds(now);
+
+    if (now - t_log >= LOG_PERIOD_MS) {
+      t_log = now;
+      log_status();
+    }
   }
   /* USER CODE END 3 */
 }
@@ -426,6 +441,41 @@ static void update_leds(uint32_t now)
                     temp_warn ? GPIO_PIN_SET : GPIO_PIN_RESET);
   HAL_GPIO_WritePin(LED_YELLOW_GPIO_Port, LED_YELLOW_Pin,
                     yellow ? GPIO_PIN_SET : GPIO_PIN_RESET);
+}
+
+static void log_line(const char *msg)
+{
+#if UART_LOG_ENABLE
+  /* Blocking transmit is fine at one short line per second: about 8 ms at
+   * 115200 baud, and nothing else here is that time-critical. */
+  HAL_UART_Transmit(&huart1, (const uint8_t *)msg, (uint16_t)strlen(msg), 50);
+#else
+  (void)msg;
+#endif
+}
+
+static void log_status(void)
+{
+#if UART_LOG_ENABLE
+  char buf[96];
+
+  /* newlib-nano's printf has no %f unless you add a linker flag, so print
+   * fixed-point by hand. All three values are positive in normal use. */
+  int t10    = (int)(temp_c * 10.0f);
+  int tilt10 = (int)(tilt_deg * 10.0f);
+  int g100   = (int)(accel_mag_g * 100.0f);
+
+  int n = snprintf(buf, sizeof(buf),
+                   "T=%d.%dC tilt=%d.%ddeg a=%d.%02dg red=%d yel=%d imu=%s\r\n",
+                   t10 / 10, t10 % 10,
+                   tilt10 / 10, tilt10 % 10,
+                   g100 / 100, g100 % 100,
+                   temp_warn, (tilt_warn || shock_active),
+                   imu_fault ? "FAULT" : "ok");
+  if (n > 0) {
+    log_line(buf);
+  }
+#endif
 }
 /* USER CODE END 4 */
 
