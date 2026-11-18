@@ -25,3 +25,6 @@ Backup/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Host test build output
+tests/build/
