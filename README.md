@@ -10,8 +10,9 @@ I wrote it to practise STM32 HAL firmware end to end: ADC, I2C and UART on real
 parts, small separate drivers, and a main loop that schedules everything with
 `HAL_GetTick()` instead of blocking delays.
 
-**Status:** the firmware is written but has not been flashed or tested on
-hardware yet. Everything under "Test results" is a placeholder until I do.
+**Status:** the firmware is written and its logic passes host tests on a PC
+(see "Testing"), but it has not been flashed or tested on hardware yet. The
+measured results under "Testing" are placeholders until I do.
 
 ## Hardware
 
@@ -100,7 +101,7 @@ when the 32-bit tick counter wraps after about 49 days.
 
 For temperature I take 16 ADC conversions, average them, and convert with
 10 mV per degree against a 3.3 V reference. The red LED uses two thresholds:
-it turns on at 45 °C and only turns off below 42 °C, so it does not flicker
+it turns on at 45 °C and only turns off at 42 °C or lower, so it does not flicker
 when the temperature sits near the limit.
 
 For orientation I read all six accel bytes in one I2C burst, so X, Y and Z
@@ -125,10 +126,41 @@ tuned ones.
 | Shock LED hold time | 1000 ms |
 | LM35 samples per reading | 16 |
 
-## Test results
+## Testing
 
-TODO: measured readings, photos and notes. The test checklist is in
-docs/test-notes.md.
+### Host tests
+
+The `tests/` folder builds my drivers and the USER CODE in `main.c` on a PC,
+against a small fake HAL that stands in for the ADC, I2C, GPIO, UART and the
+tick counter. CubeIDE only compiles `Core/` and `Drivers/`, so none of this
+ends up in the firmware. To run them:
+
+```
+make -C tests
+```
+
+The 26 tests cover the LM35 conversion and averaging, an ADC timeout, the
+MPU6050 WHO_AM_I check and register setup, signed big-endian decoding, the
+tilt and magnitude maths, the temperature hysteresis, the tilt and shock
+thresholds, the 1 s shock hold, the 5 Hz fault blink, recovery after a failed
+I2C read, the tick counter wrapping, and the exact UART line format. All 26
+pass.
+
+To make sure the tests can actually fail, the code was broken on purpose in a
+few ways: wrong accel range, unshifted I2C address, swapped byte order, no
+hysteresis, wrong averaging divisor, and a shock hold written as
+`now >= shock_ms + SHOCK_HOLD_MS`. Each one makes at least one test fail. The
+last one only fails because of a check a few milliseconds after a shock that
+happens just before the tick counter wraps.
+
+These tests check logic only. They can't show ADC accuracy, noise, I2C
+timing, wiring or power problems, or whether the generated HAL setup is
+right. That needs the board.
+
+### On the board
+
+TODO: measured readings, photos and notes. The test checklist, with the
+values I expect worked out from the datasheets, is in docs/test-notes.md.
 
 ## Known limitations
 
