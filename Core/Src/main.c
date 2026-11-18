@@ -21,7 +21,9 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "config.h"
+#include "lm35.h"
+#include "mpu6050.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -47,7 +49,17 @@ I2C_HandleTypeDef hi2c1;
 UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
+static float    temp_c       = 0.0f;
+static float    tilt_deg     = 0.0f;
+static float    accel_mag_g  = 0.0f;
 
+static uint8_t  temp_warn    = 0;
+static uint8_t  tilt_warn    = 0;
+static uint8_t  shock_active = 0;
+static uint32_t shock_ms     = 0;   /* tick when the last shock was seen */
+
+static uint8_t  imu_ready    = 0;   /* init passed, safe to read */
+static uint8_t  imu_fault    = 0;   /* init failed or last read failed */
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -57,7 +69,9 @@ static void MX_ADC1_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
-
+static void update_temperature(void);
+static void update_imu(uint32_t now);
+static void update_leds(uint32_t now);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -98,7 +112,15 @@ int main(void)
   MX_I2C1_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
+  imu_ready = (MPU6050_Init(&hi2c1) == HAL_OK);
+  imu_fault = !imu_ready;
 
+  /* Each task keeps the tick of its last run. Comparing with
+   * (now - last >= period) on uint32_t still works when the tick counter
+   * wraps around after about 49 days. */
+  uint32_t t_heartbeat = HAL_GetTick();
+  uint32_t t_temp      = t_heartbeat;
+  uint32_t t_imu       = t_heartbeat;
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -108,6 +130,26 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    uint32_t now = HAL_GetTick();
+
+    if (now - t_heartbeat >= HEARTBEAT_PERIOD_MS) {
+      t_heartbeat = now;
+      HAL_GPIO_TogglePin(LED_HEARTBEAT_GPIO_Port, LED_HEARTBEAT_Pin);
+    }
+
+    if (now - t_temp >= TEMP_PERIOD_MS) {
+      t_temp = now;
+      update_temperature();
+    }
+
+    if (now - t_imu >= IMU_PERIOD_MS) {
+      t_imu = now;
+      update_imu(now);
+    }
+
+    /* LEDs are cheap to update, so do it every pass instead of tying them
+     * to one of the task periods. */
+    update_leds(now);
   }
   /* USER CODE END 3 */
 }
@@ -320,7 +362,71 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+static void update_temperature(void)
+{
+  float t;
 
+  /* On a failed read keep the last good value rather than acting on junk. */
+  if (LM35_ReadCelsius(&hadc1, &t) != HAL_OK) {
+    return;
+  }
+  temp_c = t;
+
+  /* Two thresholds instead of one so the LED does not chatter around
+   * the limit. */
+  if (!temp_warn && temp_c >= TEMP_WARN_ON_C) {
+    temp_warn = 1;
+  } else if (temp_warn && temp_c <= TEMP_WARN_OFF_C) {
+    temp_warn = 0;
+  }
+}
+
+static void update_imu(uint32_t now)
+{
+  MPU6050_Accel a;
+
+  if (!imu_ready) {
+    return;
+  }
+
+  /* Keep trying every period so a loose wire that comes back recovers on
+   * its own, but flag the fault while reads are failing. */
+  imu_fault = (MPU6050_ReadAccel(&hi2c1, &a) != HAL_OK);
+  if (imu_fault) {
+    return;
+  }
+
+  tilt_deg    = MPU6050_TiltDeg(&a);
+  accel_mag_g = MPU6050_MagnitudeG(&a);
+  tilt_warn   = (tilt_deg > TILT_WARN_DEG);
+
+  if (accel_mag_g > SHOCK_WARN_G) {
+    shock_active = 1;
+    shock_ms = now;
+  }
+}
+
+static void update_leds(uint32_t now)
+{
+  uint8_t yellow;
+
+  if (shock_active && (now - shock_ms >= SHOCK_HOLD_MS)) {
+    shock_active = 0;
+  }
+
+  if (imu_fault) {
+    /* Fast blink (5 Hz) so a sensor fault looks different from a real
+     * tilt or shock warning, which is solid. */
+    yellow = (uint8_t)((now / 100U) & 1U);
+  } else {
+    yellow = (tilt_warn || shock_active);
+  }
+
+  HAL_GPIO_WritePin(LED_RED_GPIO_Port, LED_RED_Pin,
+                    temp_warn ? GPIO_PIN_SET : GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(LED_YELLOW_GPIO_Port, LED_YELLOW_Pin,
+                    yellow ? GPIO_PIN_SET : GPIO_PIN_RESET);
+}
 /* USER CODE END 4 */
 
 /**
